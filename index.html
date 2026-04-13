@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+
+<title>Trace — From Hallucination to Truth-Seeking AI · Mian Deng for xAI</title>
+<meta name="description" content="An evidence layer proposal for X and Grok. Pitch deck for the Exceptional Designer role at xAI — by Mian Deng.">
+
+<meta property="og:title" content="Trace — An Evidence Layer for X + Grok">
+<meta property="og:description" content="xAI Exceptional Designer application · Mian Deng · 20 slides">
+<meta property="og:image" content="https://deck.0xmian.com/og-cover.png">
+<meta property="og:url" content="https://deck.0xmian.com">
+<meta property="og:type" content="website">
+
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Trace — An Evidence Layer for X + Grok">
+<meta name="twitter:description" content="xAI Exceptional Designer application · Mian Deng">
+<meta name="twitter:image" content="https://deck.0xmian.com/og-cover.png">
+
+<link rel="preconnect" href="https://rsms.me/">
+<link rel="stylesheet" href="https://rsms.me/inter/inter.css">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+<style>
+:root { --bg:#0a0a0a; --fg:#fafafa; --dim:#666; --accent:#fafafa; }
+* { margin:0; padding:0; box-sizing:border-box; }
+html, body { height:100%; background:var(--bg); color:var(--fg); font-family:'Inter',system-ui,sans-serif; overflow:hidden; -webkit-font-smoothing:antialiased; }
+body { display:flex; flex-direction:column; align-items:center; justify-content:center; position:relative; }
+
+#stage { width:100vw; height:100vh; display:flex; align-items:center; justify-content:center; position:relative; cursor:default; }
+#canvas-wrap { position:relative; max-width:100vw; max-height:100vh; display:flex; align-items:center; justify-content:center; }
+canvas { display:block; max-width:100vw; max-height:100vh; box-shadow:0 20px 80px rgba(0,0,0,0.5); background:#fff; }
+
+/* Loader */
+#loader { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; background:var(--bg); z-index:50; transition:opacity .4s; font-family:'IBM Plex Mono',monospace; font-size:12px; color:var(--dim); letter-spacing:.05em; }
+#loader.hide { opacity:0; pointer-events:none; }
+#loader::after { content:''; width:8px; height:8px; background:var(--fg); border-radius:50%; margin-left:10px; animation:pulse 1s infinite; }
+@keyframes pulse { 0%,100%{opacity:.3} 50%{opacity:1} }
+
+/* Click zones for nav (invisible) */
+.nav-zone { position:absolute; top:0; height:100%; width:25%; z-index:10; cursor:pointer; }
+.nav-zone.prev { left:0; }
+.nav-zone.next { right:0; cursor:e-resize; }
+.nav-zone.prev { cursor:w-resize; }
+
+/* Chrome: appears on hover/motion */
+#chrome { position:fixed; bottom:0; left:0; right:0; padding:20px 24px; display:flex; justify-content:space-between; align-items:center; background:linear-gradient(to top, rgba(0,0,0,0.6), transparent); z-index:20; opacity:0; transition:opacity .3s; pointer-events:none; font-family:'IBM Plex Mono',monospace; font-size:11px; letter-spacing:.08em; }
+body.show-chrome #chrome { opacity:1; pointer-events:auto; }
+#counter { color:var(--fg); }
+#counter .dim { color:var(--dim); }
+#meta { color:var(--dim); text-transform:uppercase; }
+#meta a { color:var(--dim); text-decoration:none; border-bottom:1px solid transparent; transition:border-color .2s; }
+#meta a:hover { border-bottom-color:var(--dim); }
+
+#hint { position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); font-family:'IBM Plex Mono',monospace; font-size:11px; color:rgba(255,255,255,0.4); letter-spacing:.1em; pointer-events:none; opacity:0; transition:opacity .5s; z-index:30; text-align:center; background:rgba(0,0,0,0.7); padding:14px 20px; border:1px solid rgba(255,255,255,0.1); }
+#hint.show { opacity:1; }
+#hint kbd { background:rgba(255,255,255,0.1); padding:2px 6px; border-radius:3px; margin:0 2px; font-family:inherit; }
+
+@media (max-width: 768px) {
+  #chrome { padding:14px 16px; font-size:10px; }
+  #hint { display:none; }
+}
+</style>
+</head>
+<body>
+
+<div id="stage">
+  <div id="canvas-wrap"><canvas id="canvas"></canvas></div>
+  <div class="nav-zone prev" id="prevZone" aria-label="Previous"></div>
+  <div class="nav-zone next" id="nextZone" aria-label="Next"></div>
+</div>
+
+<div id="loader">LOADING</div>
+
+<div id="hint">
+  <kbd>←</kbd> <kbd>→</kbd> navigate &nbsp;·&nbsp; <kbd>F</kbd> fullscreen &nbsp;·&nbsp; <kbd>ESC</kbd> exit
+</div>
+
+<div id="chrome">
+  <div id="counter"><span id="cur">1</span><span class="dim"> / </span><span id="total">–</span></div>
+  <div id="meta">MIAN DENG &nbsp;·&nbsp; <a href="https://0xmian.com" target="_blank" rel="noopener">0XMIAN.COM</a></div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script>
+pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+const PDF_URL = 'Mian_xAI_Pitch.pdf';
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+const loader = document.getElementById('loader');
+const curEl = document.getElementById('cur');
+const totalEl = document.getElementById('total');
+const hintEl = document.getElementById('hint');
+
+let pdfDoc = null, currentPage = 1, totalPages = 0, rendering = false, pendingPage = null;
+
+// Parse ?page= from URL for deep linking
+const urlParams = new URLSearchParams(window.location.search);
+const startPage = Math.max(1, parseInt(urlParams.get('page')) || 1);
+
+async function render(num) {
+  if (rendering) { pendingPage = num; return; }
+  rendering = true;
+  const page = await pdfDoc.getPage(num);
+  const dpr = window.devicePixelRatio || 1;
+  const vw = window.innerWidth, vh = window.innerHeight;
+  const unscaled = page.getViewport({ scale: 1 });
+  // fit to screen with small padding
+  const scale = Math.min(vw / unscaled.width, vh / unscaled.height) * 0.96;
+  const viewport = page.getViewport({ scale: scale * dpr });
+  canvas.width = viewport.width;
+  canvas.height = viewport.height;
+  canvas.style.width = (viewport.width / dpr) + 'px';
+  canvas.style.height = (viewport.height / dpr) + 'px';
+  await page.render({ canvasContext: ctx, viewport }).promise;
+  rendering = false;
+  curEl.textContent = num;
+  // Update URL without scroll
+  const url = new URL(window.location);
+  if (num === 1) url.searchParams.delete('page'); else url.searchParams.set('page', num);
+  window.history.replaceState({}, '', url);
+  if (pendingPage !== null) { const p = pendingPage; pendingPage = null; render(p); }
+}
+
+function go(n) {
+  n = Math.max(1, Math.min(totalPages, n));
+  if (n === currentPage) return;
+  currentPage = n;
+  render(n);
+}
+
+// Nav
+document.getElementById('prevZone').addEventListener('click', () => go(currentPage - 1));
+document.getElementById('nextZone').addEventListener('click', () => go(currentPage + 1));
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowRight' || e.key === 'ArrowDown' || e.key === ' ' || e.key === 'PageDown') { e.preventDefault(); go(currentPage + 1); }
+  else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp' || e.key === 'PageUp') { e.preventDefault(); go(currentPage - 1); }
+  else if (e.key === 'Home') { e.preventDefault(); go(1); }
+  else if (e.key === 'End') { e.preventDefault(); go(totalPages); }
+  else if (e.key === 'f' || e.key === 'F') { toggleFullscreen(); }
+});
+
+function toggleFullscreen() {
+  if (!document.fullscreenElement) document.documentElement.requestFullscreen().catch(()=>{});
+  else document.exitFullscreen();
+}
+
+// Touch swipe
+let touchStartX = 0, touchStartY = 0;
+document.addEventListener('touchstart', e => { touchStartX = e.touches[0].clientX; touchStartY = e.touches[0].clientY; }, {passive:true});
+document.addEventListener('touchend', e => {
+  const dx = e.changedTouches[0].clientX - touchStartX;
+  const dy = e.changedTouches[0].clientY - touchStartY;
+  if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy)) { dx < 0 ? go(currentPage + 1) : go(currentPage - 1); }
+}, {passive:true});
+
+// Chrome show/hide on motion
+let chromeTimer;
+function showChrome() {
+  document.body.classList.add('show-chrome');
+  clearTimeout(chromeTimer);
+  chromeTimer = setTimeout(() => document.body.classList.remove('show-chrome'), 2500);
+}
+document.addEventListener('mousemove', showChrome);
+document.addEventListener('touchstart', showChrome, {passive:true});
+
+// Resize
+let resizeTimer;
+window.addEventListener('resize', () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(() => render(currentPage), 150); });
+
+// Init
+(async () => {
+  try {
+    pdfDoc = await pdfjsLib.getDocument(PDF_URL).promise;
+    totalPages = pdfDoc.numPages;
+    totalEl.textContent = totalPages;
+    currentPage = Math.min(startPage, totalPages);
+    await render(currentPage);
+    loader.classList.add('hide');
+    showChrome();
+    // Show keyboard hint briefly on desktop, first visit
+    if (window.innerWidth > 768 && !sessionStorage.getItem('hintShown')) {
+      setTimeout(() => { hintEl.classList.add('show'); setTimeout(() => hintEl.classList.remove('show'), 3500); }, 800);
+      sessionStorage.setItem('hintShown', '1');
+    }
+  } catch (err) {
+    loader.textContent = 'FAILED TO LOAD · ' + err.message;
+  }
+})();
+</script>
+
+<!-- GoatCounter analytics -->
+<script data-goatcounter="https://rainineye.goatcounter.com/count" async src="//gc.zgo.at/count.js"></script>
+
+</body>
+</html>
