@@ -31,12 +31,17 @@ body { display:flex; flex-direction:column; align-items:center; justify-content:
 
 #stage { width:100vw; height:100vh; display:flex; align-items:center; justify-content:center; position:relative; cursor:default; }
 #canvas-wrap { position:relative; max-width:100vw; max-height:100vh; display:flex; align-items:center; justify-content:center; }
-canvas { display:block; max-width:100vw; max-height:100vh; box-shadow:0 20px 80px rgba(0,0,0,0.5); background:#fff; }
+canvas { display:block; max-width:100vw; max-height:100vh; box-shadow:0 20px 80px rgba(0,0,0,0.5); background:#fff; transition:opacity .15s ease-out; }
+canvas.fading { opacity:0; }
 
 /* Loader */
-#loader { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; background:var(--bg); z-index:50; transition:opacity .4s; font-family:'IBM Plex Mono',monospace; font-size:12px; color:var(--dim); letter-spacing:.05em; }
+#loader { position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; background:var(--bg); z-index:50; transition:opacity .4s; font-family:'IBM Plex Mono',monospace; font-size:11px; color:var(--dim); letter-spacing:.08em; }
 #loader.hide { opacity:0; pointer-events:none; }
-#loader::after { content:''; width:8px; height:8px; background:var(--fg); border-radius:50%; margin-left:10px; animation:pulse 1s infinite; }
+#loader-label { display:flex; align-items:center; margin-bottom:14px; }
+#loader-label::after { content:''; width:6px; height:6px; background:var(--dim); border-radius:50%; margin-left:10px; animation:pulse 1s infinite; }
+#progress-track { width:180px; height:1px; background:rgba(255,255,255,0.08); position:relative; overflow:hidden; }
+#progress-bar { position:absolute; top:0; left:0; height:100%; width:0%; background:rgba(238,217,255,0.7); transition:width .3s ease-out; }
+#progress-pct { margin-top:10px; font-size:10px; color:rgba(238,217,255,0.5); font-variant-numeric:tabular-nums; }
 @keyframes pulse { 0%,100%{opacity:.3} 50%{opacity:1} }
 
 /* Click zones for nav (invisible) */
@@ -72,7 +77,11 @@ body.show-chrome #chrome { opacity:1; pointer-events:auto; }
   <div class="nav-zone next" id="nextZone" aria-label="Next"></div>
 </div>
 
-<div id="loader">LOADING</div>
+<div id="loader">
+  <div id="loader-label">LOADING</div>
+  <div id="progress-track"><div id="progress-bar"></div></div>
+  <div id="progress-pct">0%</div>
+</div>
 
 <div id="hint">
   <kbd>←</kbd> <kbd>→</kbd> navigate &nbsp;·&nbsp; <kbd>F</kbd> fullscreen &nbsp;·&nbsp; <kbd>ESC</kbd> exit
@@ -91,6 +100,9 @@ const PDF_URL = 'Mian_xAI_Pitch.pdf';
 const canvas = document.getElementById('canvas');
 const ctx = canvas.getContext('2d');
 const loader = document.getElementById('loader');
+const loaderLabel = document.getElementById('loader-label');
+const progressBar = document.getElementById('progress-bar');
+const progressPct = document.getElementById('progress-pct');
 const curEl = document.getElementById('cur');
 const totalEl = document.getElementById('total');
 const hintEl = document.getElementById('hint');
@@ -101,9 +113,21 @@ let pdfDoc = null, currentPage = 1, totalPages = 0, rendering = false, pendingPa
 const urlParams = new URLSearchParams(window.location.search);
 const startPage = Math.max(1, parseInt(urlParams.get('page')) || 1);
 
+function setProgress(pct) {
+  pct = Math.max(0, Math.min(100, Math.round(pct)));
+  progressBar.style.width = pct + '%';
+  progressPct.textContent = pct + '%';
+}
+
 async function render(num) {
   if (rendering) { pendingPage = num; return; }
   rendering = true;
+  // fade out before rendering next page (skip on very first render when canvas is empty)
+  const isFirst = !canvas.width;
+  if (!isFirst) {
+    canvas.classList.add('fading');
+    await new Promise(r => setTimeout(r, 150));
+  }
   const page = await pdfDoc.getPage(num);
   const dpr = window.devicePixelRatio || 1;
   const vw = window.innerWidth, vh = window.innerHeight;
@@ -116,6 +140,7 @@ async function render(num) {
   canvas.style.width = (viewport.width / dpr) + 'px';
   canvas.style.height = (viewport.height / dpr) + 'px';
   await page.render({ canvasContext: ctx, viewport }).promise;
+  canvas.classList.remove('fading');
   rendering = false;
   curEl.textContent = num;
   // Update URL without scroll
@@ -175,10 +200,22 @@ window.addEventListener('resize', () => { clearTimeout(resizeTimer); resizeTimer
 // Init
 (async () => {
   try {
-    pdfDoc = await pdfjsLib.getDocument(PDF_URL).promise;
+    const loadingTask = pdfjsLib.getDocument({
+      url: PDF_URL,
+      disableAutoFetch: true,   // don't download full file upfront
+      disableStream: false,     // use streaming chunks
+      rangeChunkSize: 65536     // 64KB chunks
+    });
+    // Progress callback: fires as bytes arrive
+    loadingTask.onProgress = ({ loaded, total }) => {
+      if (total) setProgress((loaded / total) * 100);
+      else setProgress(Math.min(90, (loaded / (6.7 * 1024 * 1024)) * 100)); // estimate if total unknown
+    };
+    pdfDoc = await loadingTask.promise;
     totalPages = pdfDoc.numPages;
     totalEl.textContent = totalPages;
     currentPage = Math.min(startPage, totalPages);
+    setProgress(100);
     await render(currentPage);
     loader.classList.add('hide');
     showChrome();
@@ -188,7 +225,7 @@ window.addEventListener('resize', () => { clearTimeout(resizeTimer); resizeTimer
       sessionStorage.setItem('hintShown', '1');
     }
   } catch (err) {
-    loader.textContent = 'FAILED TO LOAD · ' + err.message;
+    loaderLabel.textContent = 'FAILED TO LOAD · ' + err.message;
   }
 })();
 </script>
