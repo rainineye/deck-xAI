@@ -26,10 +26,10 @@
 <style>
 :root { --bg:#0a0a0a; --fg:#fafafa; --dim:#666; --accent:#fafafa; --lavender:238,217,255; }
 * { margin:0; padding:0; box-sizing:border-box; }
-html, body { height:100%; background:var(--bg); color:var(--fg); font-family:'Inter',system-ui,sans-serif; overflow:hidden; -webkit-font-smoothing:antialiased; }
+html, body { height:100%; min-height:100dvh; background:var(--bg); color:var(--fg); font-family:'Inter',system-ui,sans-serif; overflow:hidden; -webkit-font-smoothing:antialiased; }
 body { display:flex; flex-direction:column; align-items:center; justify-content:center; position:relative; }
 
-#stage { width:100vw; height:100vh; display:flex; align-items:center; justify-content:center; position:relative; cursor:default; }
+#stage { width:100vw; height:100vh; height:100dvh; display:flex; align-items:center; justify-content:center; position:relative; cursor:default; }
 #canvas-wrap { position:relative; max-width:100vw; max-height:100vh; display:flex; align-items:center; justify-content:center; }
 canvas { display:block; max-width:100vw; max-height:100vh; box-shadow:0 20px 80px rgba(0,0,0,0.5); background:transparent; }
 canvas.pre-render { visibility:hidden; }
@@ -44,6 +44,8 @@ canvas.back { position:absolute; top:50%; left:50%; transform:translate(-50%,-50
 #loader.hide { opacity:0; pointer-events:none; }
 #loader-label { display:flex; align-items:center; margin-bottom:14px; }
 #loader-label::after { content:''; width:6px; height:6px; background:var(--dim); border-radius:50%; margin-left:10px; animation:pulse 1s infinite; }
+#loader-label a { color:rgba(var(--lavender),0.9); text-decoration:none; border-bottom:1px solid rgba(var(--lavender),0.35); }
+#loader-label a:hover { border-bottom-color:rgba(var(--lavender),0.9); }
 #progress-track { width:180px; height:1px; background:rgba(255,255,255,0.08); position:relative; overflow:hidden; }
 #progress-bar { position:absolute; top:0; left:0; height:100%; width:0%; background:rgba(238,217,255,0.7); transition:width .3s ease-out; }
 #progress-pct { margin-top:10px; font-size:10px; color:rgba(238,217,255,0.5); font-variant-numeric:tabular-nums; }
@@ -56,7 +58,7 @@ canvas.back { position:absolute; top:50%; left:50%; transform:translate(-50%,-50
 .nav-zone.prev { cursor:w-resize; }
 
 /* Chrome: appears on hover/motion */
-#chrome { position:fixed; bottom:0; left:0; right:0; padding:20px 24px; display:flex; justify-content:space-between; align-items:center; background:linear-gradient(to top, rgba(0,0,0,0.6), transparent); z-index:20; opacity:0; transition:opacity .3s; pointer-events:none; font-family:'IBM Plex Mono',monospace; font-size:11px; letter-spacing:.08em; }
+#chrome { position:fixed; bottom:0; left:0; right:0; padding:20px 24px calc(20px + env(safe-area-inset-bottom)); display:flex; justify-content:space-between; align-items:center; background:linear-gradient(to top, rgba(0,0,0,0.6), transparent); z-index:20; opacity:0; transition:opacity .3s; pointer-events:none; font-family:'IBM Plex Mono',monospace; font-size:11px; letter-spacing:.08em; }
 body.show-chrome #chrome { opacity:1; pointer-events:auto; }
 #counter { color:var(--fg); }
 #counter .dim { color:var(--dim); }
@@ -69,7 +71,7 @@ body.show-chrome #chrome { opacity:1; pointer-events:auto; }
 #hint kbd { background:rgba(var(--lavender),0.12); color:rgba(var(--lavender),0.95); padding:2px 6px; border-radius:3px; margin:0 2px; font-family:inherit; border:1px solid rgba(var(--lavender),0.2); }
 
 @media (max-width: 768px) {
-  #chrome { padding:14px 16px; font-size:10px; }
+  #chrome { padding:14px 16px calc(14px + env(safe-area-inset-bottom)); font-size:10px; }
   #hint { display:none; }
 }
 </style>
@@ -78,8 +80,8 @@ body.show-chrome #chrome { opacity:1; pointer-events:auto; }
 
 <div id="stage">
   <div id="canvas-wrap"><canvas id="canvas" class="pre-render"></canvas><canvas id="canvas-back" class="back"></canvas><div id="anno-layer"></div></div>
-  <div class="nav-zone prev" id="prevZone" aria-label="Previous"></div>
-  <div class="nav-zone next" id="nextZone" aria-label="Next"></div>
+  <div class="nav-zone prev" id="prevZone" aria-hidden="true"></div>
+  <div class="nav-zone next" id="nextZone" aria-hidden="true"></div>
 </div>
 
 <div id="loader">
@@ -97,11 +99,22 @@ body.show-chrome #chrome { opacity:1; pointer-events:auto; }
   <div id="meta">MIAN DENG &nbsp;·&nbsp; <a href="https://0xmian.com" target="_blank" rel="noopener">0XMIAN.COM</a></div>
 </div>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script>
-pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-
 const PDF_URL = 'Mian_xAI_Pitch.pdf';
+const PDFJS_SOURCES = [
+  {
+    script: 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js',
+    worker: 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js'
+  },
+  {
+    script: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js',
+    worker: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js'
+  },
+  {
+    script: 'https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.min.js',
+    worker: 'https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.worker.min.js'
+  }
+];
 const loader = document.getElementById('loader');
 const loaderLabel = document.getElementById('loader-label');
 const progressBar = document.getElementById('progress-bar');
@@ -126,58 +139,116 @@ function setProgress(pct) {
 let frontCanvas = document.getElementById('canvas');
 let backCanvas = document.getElementById('canvas-back');
 
+function showLoadError(message) {
+  loader.classList.remove('hide');
+  loaderLabel.textContent = 'FAILED TO LOAD · ' + message + ' · ';
+  const link = document.createElement('a');
+  link.href = PDF_URL;
+  link.target = '_blank';
+  link.rel = 'noopener';
+  link.textContent = 'OPEN PDF';
+  loaderLabel.appendChild(link);
+  progressPct.textContent = '';
+}
+
+function loadScript(src) {
+  return new Promise((resolve, reject) => {
+    const script = document.createElement('script');
+    script.src = src;
+    script.async = true;
+    script.onload = resolve;
+    script.onerror = () => reject(new Error('Unable to load ' + src));
+    document.head.appendChild(script);
+  });
+}
+
+async function loadPdfDocument() {
+  let lastError;
+  for (const source of PDFJS_SOURCES) {
+    try {
+      await loadScript(source.script);
+      if (!window.pdfjsLib) throw new Error('PDF.js was not initialized');
+      pdfjsLib.GlobalWorkerOptions.workerSrc = source.worker;
+      const loadingTask = pdfjsLib.getDocument({
+        url: PDF_URL,
+        disableAutoFetch: true,
+        disableStream: false,
+        rangeChunkSize: 65536
+      });
+      loadingTask.onProgress = ({ loaded, total }) => {
+        if (total) setProgress((loaded / total) * 100);
+        else setProgress(Math.min(90, (loaded / (6.7 * 1024 * 1024)) * 100));
+      };
+      return await loadingTask.promise;
+    } catch (err) {
+      lastError = err;
+      delete window.pdfjsLib;
+    }
+  }
+  throw lastError || new Error('PDF.js could not be loaded');
+}
+
 async function render(num) {
   if (rendering) { pendingPage = num; return; }
   rendering = true;
-  const page = await pdfDoc.getPage(num);
-  const dpr = Math.min(window.devicePixelRatio || 1, 2); // cap at 2× for mobile perf
-  const vw = window.innerWidth, vh = window.innerHeight;
-  const unscaled = page.getViewport({ scale: 1 });
-  const scale = Math.min(vw / unscaled.width, vh / unscaled.height) * 0.96;
-  // Round CSS dimensions to whole pixels to eliminate sub-pixel white border
-  const cssW = Math.round(unscaled.width * scale);
-  const cssH = Math.round(unscaled.height * scale);
-  const viewport = page.getViewport({ scale: (cssW * dpr) / unscaled.width });
-  // Render to the OFF-screen back canvas
-  backCanvas.width = cssW * dpr;
-  backCanvas.height = cssH * dpr;
-  backCanvas.style.width = cssW + 'px';
-  backCanvas.style.height = cssH + 'px';
-  const backCtx = backCanvas.getContext('2d');
-  await page.render({ canvasContext: backCtx, viewport }).promise;
-  // Swap: the back canvas becomes front, front becomes back
-  frontCanvas.classList.add('back');
-  backCanvas.classList.remove('back');
-  backCanvas.classList.remove('pre-render');
-  const tmp = frontCanvas;
-  frontCanvas = backCanvas;
-  backCanvas = tmp;
-  // Rebuild annotation layer (clickable links)
-  annoLayer.innerHTML = '';
-  annoLayer.style.width = cssW + 'px';
-  annoLayer.style.height = cssH + 'px';
-  const annotations = await page.getAnnotations();
-  for (const anno of annotations) {
-    if (anno.subtype !== 'Link' || !anno.url) continue;
-    const [x1, y1, x2, y2] = pdfjsLib.Util.normalizeRect(
-      viewport.convertToViewportRectangle(anno.rect)
-    );
-    const a = document.createElement('a');
-    a.href = anno.url;
-    a.target = '_blank';
-    a.rel = 'noopener noreferrer';
-    a.style.left   = (x1 / dpr) + 'px';
-    a.style.top    = (y1 / dpr) + 'px';
-    a.style.width  = ((x2 - x1) / dpr) + 'px';
-    a.style.height = ((y2 - y1) / dpr) + 'px';
-    annoLayer.appendChild(a);
+  try {
+    const page = await pdfDoc.getPage(num);
+    const dpr = Math.min(window.devicePixelRatio || 1, 2); // cap at 2× for mobile perf
+    const vw = window.innerWidth, vh = window.innerHeight;
+    const unscaled = page.getViewport({ scale: 1 });
+    const scale = Math.min(vw / unscaled.width, vh / unscaled.height) * 0.96;
+    // Round CSS dimensions to whole pixels to eliminate sub-pixel white border
+    const cssW = Math.round(unscaled.width * scale);
+    const cssH = Math.round(unscaled.height * scale);
+    const pixelW = Math.round(cssW * dpr);
+    const pixelH = Math.round(cssH * dpr);
+    const viewport = page.getViewport({ scale: pixelW / unscaled.width });
+    // Render to the OFF-screen back canvas
+    backCanvas.width = pixelW;
+    backCanvas.height = pixelH;
+    backCanvas.style.width = cssW + 'px';
+    backCanvas.style.height = cssH + 'px';
+    const backCtx = backCanvas.getContext('2d');
+    await page.render({ canvasContext: backCtx, viewport }).promise;
+    // Swap: the back canvas becomes front, front becomes back
+    frontCanvas.classList.add('back');
+    backCanvas.classList.remove('back');
+    backCanvas.classList.remove('pre-render');
+    const tmp = frontCanvas;
+    frontCanvas = backCanvas;
+    backCanvas = tmp;
+    // Rebuild annotation layer (clickable links)
+    annoLayer.innerHTML = '';
+    annoLayer.style.width = cssW + 'px';
+    annoLayer.style.height = cssH + 'px';
+    const annotations = await page.getAnnotations();
+    for (const anno of annotations) {
+      if (anno.subtype !== 'Link' || !anno.url) continue;
+      const [x1, y1, x2, y2] = pdfjsLib.Util.normalizeRect(
+        viewport.convertToViewportRectangle(anno.rect)
+      );
+      const a = document.createElement('a');
+      a.href = anno.url;
+      a.target = '_blank';
+      a.rel = 'noopener noreferrer';
+      a.style.left   = (x1 / dpr) + 'px';
+      a.style.top    = (y1 / dpr) + 'px';
+      a.style.width  = ((x2 - x1) / dpr) + 'px';
+      a.style.height = ((y2 - y1) / dpr) + 'px';
+      annoLayer.appendChild(a);
+    }
+    curEl.textContent = num;
+    const url = new URL(window.location);
+    if (num === 1) url.searchParams.delete('page'); else url.searchParams.set('page', num);
+    window.history.replaceState({}, '', url);
+    return true;
+  } catch (err) {
+    showLoadError(err.message || 'Unable to render this slide');
+    return false;
+  } finally {
+    rendering = false;
+    if (pendingPage !== null) { const p = pendingPage; pendingPage = null; render(p); }
   }
-  rendering = false;
-  curEl.textContent = num;
-  const url = new URL(window.location);
-  if (num === 1) url.searchParams.delete('page'); else url.searchParams.set('page', num);
-  window.history.replaceState({}, '', url);
-  if (pendingPage !== null) { const p = pendingPage; pendingPage = null; render(p); }
 }
 
 function go(n) {
@@ -225,27 +296,18 @@ document.addEventListener('touchstart', showChrome, {passive:true});
 
 // Resize
 let resizeTimer;
-window.addEventListener('resize', () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(() => render(currentPage), 150); });
+window.addEventListener('resize', () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(() => { if (pdfDoc) render(currentPage); }, 150); });
 
 // Init
 (async () => {
   try {
-    const loadingTask = pdfjsLib.getDocument({
-      url: PDF_URL,
-      disableAutoFetch: true,
-      disableStream: false,
-      rangeChunkSize: 65536
-    });
-    loadingTask.onProgress = ({ loaded, total }) => {
-      if (total) setProgress((loaded / total) * 100);
-      else setProgress(Math.min(90, (loaded / (6.7 * 1024 * 1024)) * 100));
-    };
-    pdfDoc = await loadingTask.promise;
+    pdfDoc = await loadPdfDocument();
     totalPages = pdfDoc.numPages;
     totalEl.textContent = totalPages;
     currentPage = Math.min(startPage, totalPages);
     setProgress(100);
-    await render(currentPage);
+    const rendered = await render(currentPage);
+    if (!rendered) return;
     loader.classList.add('hide');
     showChrome();
     // Show keyboard hint briefly on desktop when landing on page 1
@@ -253,13 +315,13 @@ window.addEventListener('resize', () => { clearTimeout(resizeTimer); resizeTimer
       setTimeout(() => { hintEl.classList.add('show'); setTimeout(() => hintEl.classList.remove('show'), 3500); }, 800);
     }
   } catch (err) {
-    loaderLabel.textContent = 'FAILED TO LOAD · ' + err.message;
+    showLoadError(err.message);
   }
 })();
 </script>
 
 <!-- GoatCounter analytics -->
-<script data-goatcounter="https://rainineye.goatcounter.com/count" async src="//gc.zgo.at/count.js"></script>
+<script data-goatcounter="https://rainineye.goatcounter.com/count" async src="https://gc.zgo.at/count.js"></script>
 
 </body>
 </html>
