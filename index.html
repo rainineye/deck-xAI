@@ -154,8 +154,6 @@ async function render(num) {
   backCanvas = tmp;
   // Rebuild annotation layer (clickable links)
   annoLayer.innerHTML = '';
-  const cssW = viewport.width / dpr;
-  const cssH = viewport.height / dpr;
   annoLayer.style.width = cssW + 'px';
   annoLayer.style.height = cssH + 'px';
   const annotations = await page.getAnnotations();
