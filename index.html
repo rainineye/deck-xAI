@@ -260,15 +260,33 @@ async function renderMobileCanvasPage(page) {
   const { unscaled, cssW, cssH } = getPageLayout(page);
   const dpr = window.devicePixelRatio || 1;
   const pinchScale = window.visualViewport?.scale || 1;
-  // Minimum 2× DPR so the user can zoom to 2× before any blur appears.
-  // Scales up with pinch so a re-render after zoom ends is always pixel-perfect.
-  // Cap at 8× to protect memory on very high-DPR devices.
-  const renderRatio = Math.min(Math.max(dpr * pinchScale, dpr * 2), 8);
-  const maxPixels = 16_000_000;
-  const limitedRatio = Math.min(renderRatio, Math.sqrt(maxPixels / (cssW * cssH)));
-  const pixelW = Math.max(1, Math.round(cssW * limitedRatio));
-  const pixelH = Math.max(1, Math.round(cssH * limitedRatio));
-  const viewport = page.getViewport({ scale: pixelW / unscaled.width });
+  const preferredRatio = Math.min(Math.max(dpr * pinchScale, dpr * 2), 8);
+  const ratios = [...new Set([preferredRatio, 4, 3, 2, 1].map(r => Math.max(1, Math.min(8, r))))];
+  let renderedCanvas = null;
+  let lastError = null;
+
+  for (const ratio of ratios) {
+    try {
+      const maxPixels = 12_000_000;
+      const limitedRatio = Math.min(ratio, Math.sqrt(maxPixels / (cssW * cssH)));
+      const pixelW = Math.max(1, Math.round(cssW * limitedRatio));
+      const pixelH = Math.max(1, Math.round(cssH * limitedRatio));
+      const viewport = page.getViewport({ scale: pixelW / unscaled.width });
+      const bufferCanvas = document.createElement('canvas');
+      bufferCanvas.width = pixelW;
+      bufferCanvas.height = pixelH;
+
+      const bufferCtx = bufferCanvas.getContext('2d', { alpha: false });
+      if (!bufferCtx) throw new Error('Canvas context unavailable');
+      await page.render({ canvasContext: bufferCtx, viewport }).promise;
+      renderedCanvas = bufferCanvas;
+      break;
+    } catch (err) {
+      lastError = err;
+    }
+  }
+
+  if (!renderedCanvas) throw lastError || new Error('Unable to render mobile page');
 
   // Create the canvas once and keep it in the DOM permanently.
   // Replacing it (replaceChildren) triggers a DOM mutation that causes iOS/Android
@@ -279,8 +297,8 @@ async function renderMobileCanvasPage(page) {
     mobilePage.appendChild(mobileCanvas);
   }
 
-  mobileCanvas.width  = pixelW;
-  mobileCanvas.height = pixelH;
+  mobileCanvas.width  = renderedCanvas.width;
+  mobileCanvas.height = renderedCanvas.height;
   mobileCanvas.style.width  = cssW + 'px';
   mobileCanvas.style.height = cssH + 'px';
   mobilePage.style.width  = cssW + 'px';
@@ -288,7 +306,7 @@ async function renderMobileCanvasPage(page) {
 
   const ctx = mobileCanvas.getContext('2d', { alpha: false });
   if (!ctx) throw new Error('Canvas context unavailable');
-  await page.render({ canvasContext: ctx, viewport }).promise;
+  ctx.drawImage(renderedCanvas, 0, 0);
 }
 
 async function render(num) {
