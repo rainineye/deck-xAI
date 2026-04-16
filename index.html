@@ -499,7 +499,7 @@ async function animateCurl(n, direction, myGen) {
 function go(n) {
   n = Math.max(1, Math.min(totalPages, n));
   if (n === currentPage) return;
-  const direction = n > currentPage ? 'forward' : 'backward';
+  const direction = n > currentPage ? 'backward' : 'forward';
   currentPage = n;
   if (isMobileCanvasMode && mobileCanvas) {
     const myGen = ++flipGen; // cancels any in-progress animation
