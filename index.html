@@ -279,12 +279,18 @@ async function renderMobileCanvasPage(page) {
     mobilePage.appendChild(mobileCanvas);
   }
 
-  mobileCanvas.width  = pixelW;
-  mobileCanvas.height = pixelH;
-  mobileCanvas.style.width  = cssW + 'px';
-  mobileCanvas.style.height = cssH + 'px';
-  mobilePage.style.width  = cssW + 'px';
-  mobilePage.style.height = cssH + 'px';
+  // Only mutate canvas dimensions when they actually change.
+  // On mobile (iOS Safari) assigning canvas.width/height — even to the same value —
+  // triggers an immediate GPU texture clear that composites through any overlaid
+  // canvas (curlCanvas), causing a visible flash at animation start.
+  if (mobileCanvas.width !== pixelW || mobileCanvas.height !== pixelH) {
+    mobileCanvas.width  = pixelW;
+    mobileCanvas.height = pixelH;
+  }
+  if (mobileCanvas.style.width  !== cssW + 'px') mobileCanvas.style.width  = cssW + 'px';
+  if (mobileCanvas.style.height !== cssH + 'px') mobileCanvas.style.height = cssH + 'px';
+  if (mobilePage.style.width    !== cssW + 'px') mobilePage.style.width    = cssW + 'px';
+  if (mobilePage.style.height   !== cssH + 'px') mobilePage.style.height   = cssH + 'px';
 
   const ctx = mobileCanvas.getContext('2d', { alpha: false });
   if (!ctx) throw new Error('Canvas context unavailable');
