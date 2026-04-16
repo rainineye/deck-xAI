@@ -101,6 +101,13 @@ body.show-chrome #chrome { opacity:1; pointer-events:auto; }
 
 <script>
 const PDF_URL = 'Mian_xAI_Pitch.pdf';
+const isMobilePdfMode = window.matchMedia('(max-width: 768px), (pointer: coarse)').matches;
+const mobilePdfPage = Math.max(1, parseInt(new URLSearchParams(window.location.search).get('page')) || 1);
+if (isMobilePdfMode && !window.location.pathname.endsWith('/' + PDF_URL)) {
+  const pdfHash = '#page=' + mobilePdfPage + '&zoom=page-fit&toolbar=0&navpanes=0&scrollbar=0';
+  window.location.replace(PDF_URL + pdfHash);
+}
+
 const PDFJS_SOURCES = [
   {
     script: 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js',
@@ -330,6 +337,7 @@ if (window.visualViewport) {
 
 // Init
 (async () => {
+  if (isMobilePdfMode) return;
   try {
     pdfDoc = await loadPdfDocument();
     totalPages = pdfDoc.numPages;
