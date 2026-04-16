@@ -322,6 +322,18 @@ function go(n) {
   render(n);
 }
 
+function resetMobileZoom() {
+  // Reset native zoom before navigating so the next page renders at scale 1.
+  // Only do this while zoomed; changing the meta viewport tag while at scale 1
+  // is a no-op but avoids any unnecessary DOM thrash.
+  if ((window.visualViewport?.scale || 1) <= 1.05) return;
+  const meta = document.querySelector('meta[name="viewport"]');
+  if (!meta) return;
+  const original = meta.content;
+  meta.content = original + ', maximum-scale=1';
+  requestAnimationFrame(() => { meta.content = original; });
+}
+
 // Nav
 let lastZoneNavAt = 0;
 function bindNavZone(id, delta) {
@@ -333,6 +345,7 @@ function bindNavZone(id, delta) {
     const now = Date.now();
     if (now - lastZoneNavAt < 350) return;
     lastZoneNavAt = now;
+    resetMobileZoom();
     go(currentPage + delta);
   };
   zone.addEventListener('pointerdown', e => { startX = e.clientX; startY = e.clientY; });
@@ -362,7 +375,7 @@ document.addEventListener('touchend', e => {
   if ((window.visualViewport?.scale || 1) > 1.05) return; // panning while zoomed — don't navigate
   const dx = e.changedTouches[0].clientX - touchStartX;
   const dy = e.changedTouches[0].clientY - touchStartY;
-  if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy)) { dx < 0 ? go(currentPage + 1) : go(currentPage - 1); }
+  if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy)) { resetMobileZoom(); dx < 0 ? go(currentPage + 1) : go(currentPage - 1); }
 }, {passive:true});
 
 // Chrome show/hide on motion
@@ -383,7 +396,12 @@ function scheduleRender(delay = 150) {
 }
 window.addEventListener('resize', () => scheduleRender());
 if (isMobileCanvasMode && window.visualViewport) {
-  window.visualViewport.addEventListener('resize', () => scheduleRender(220));
+  window.visualViewport.addEventListener('resize', () => {
+    // Only re-render on actual layout changes (orientation, keyboard), NOT on pinch zoom.
+    // Any DOM mutation (canvas resize, style change) while zoomed causes iOS/Android
+    // to snap the visual viewport back to scale 1.
+    if ((window.visualViewport?.scale || 1) <= 1.05) scheduleRender(220);
+  });
 }
 
 // Init
