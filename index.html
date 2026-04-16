@@ -500,7 +500,10 @@ async function animateCurl(n, direction, myGen) {
   curlCanvas.height = H;
   curlCanvas.style.width  = mobileCanvas.style.width;
   curlCanvas.style.height = mobileCanvas.style.height;
+  // Draw first frame immediately so curlCanvas fully covers mobileCanvas
+  // while render(n) rewrites it underneath — prevents flash of new page.
   curlCanvas.style.display = 'block';
+  drawCurlFrame(curlCtx, snapCanvas, W, H, 0, direction);
 
   // Render destination page into mobileCanvas (underneath the overlay)
   await render(n);
