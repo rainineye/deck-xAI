@@ -361,93 +361,128 @@ function drawCurlFrame(ctx, snap, W, H, progress, direction) {
   const p = progress;
   const t = p < 0.5 ? 2 * p * p : 1 - Math.pow(-2 * p + 2, 2) / 2;
 
-  const stripW  = Math.max(W * 0.065, 20); // visible curl/crease strip width
-  const lean    = H * 0.22;                // bottom of fold lags top by this many px
-  const shadowW = W * 0.04;
+  // Strip tapers: wider at the leading corner, narrower at trailing edge
+  const stripLead = Math.max(W * 0.10, 30); // width at leading corner (y=0 for bwd)
+  const stripTrail = Math.max(W * 0.045, 14); // width at trailing edge (y=H for bwd)
+  const lean    = H * 0.22;   // diagonal: bottom of fold lags top
+  const shadowW = W * 0.06;   // shadow spread
+  const bow     = W * 0.032;  // fold line bows outward (convex toward peeled side)
 
-  // x-position of fold line at y=0 (top) and y=H (bottom)
+  // x of fold line at top (y=0) and bottom (y=H)
   let foldTop, foldBot;
   if (direction === 'backward') {
-    foldTop = W - t * (W + stripW);  // sweeps right → left
-    foldBot = foldTop + lean;         // bottom lags → diagonal
+    foldTop = W - t * (W + stripLead);
+    foldBot = foldTop + lean;
   } else {
-    foldTop = -stripW + t * (W + stripW); // sweeps left → right
-    foldBot = foldTop - lean;              // bottom lags → diagonal
+    foldTop = -stripLead + t * (W + stripLead);
+    foldBot = foldTop - lean;
   }
 
-  // ── 1. old page in unpeeled region ──
-  ctx.save();
-  ctx.beginPath();
-  if (direction === 'backward') {
-    ctx.moveTo(0, 0); ctx.lineTo(foldTop, 0);
-    ctx.lineTo(foldBot, H); ctx.lineTo(0, H);
-  } else {
-    ctx.moveTo(foldTop, 0); ctx.lineTo(W, 0);
-    ctx.lineTo(W, H); ctx.lineTo(foldBot, H);
-  }
-  ctx.closePath();
-  ctx.clip();
-  ctx.drawImage(snap, 0, 0, W, H);
-  ctx.restore();
+  // Bezier control point for fold curve — bows toward peeled side
+  const bowDir   = direction === 'backward' ? 1 : -1;
+  const cpFoldX  = (foldTop + foldBot) / 2 + bow * bowDir;
+  const cpFoldY  = H * 0.5;
+  // Control point for outer edge of curl strip (same bow, offset outward)
+  const stripMid = (stripLead + stripTrail) / 2;
+  const cpStripX = cpFoldX + stripMid * bowDir;
+  const cpStripY = H * 0.5;
 
-  // ── 2. shadow on unpeeled side hugging the fold ──
-  ctx.save();
-  ctx.beginPath();
   if (direction === 'backward') {
-    ctx.moveTo(0, 0); ctx.lineTo(foldTop, 0);
-    ctx.lineTo(foldBot, H); ctx.lineTo(0, H);
-  } else {
-    ctx.moveTo(foldTop, 0); ctx.lineTo(W, 0);
-    ctx.lineTo(W, H); ctx.lineTo(foldBot, H);
-  }
-  ctx.closePath();
-  ctx.clip();
-  let sg;
-  if (direction === 'backward') {
-    sg = ctx.createLinearGradient(foldTop - shadowW, 0, foldTop, 0);
+    // ── 1. old page clipped to unpeeled (left) region ──
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.lineTo(foldTop, 0);
+    ctx.quadraticCurveTo(cpFoldX, cpFoldY, foldBot, H);
+    ctx.lineTo(0, H);
+    ctx.closePath();
+    ctx.clip();
+    ctx.drawImage(snap, 0, 0, W, H);
+    ctx.restore();
+
+    // ── 2. shadow — subtle, purple-tinted ──
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.lineTo(foldTop, 0);
+    ctx.quadraticCurveTo(cpFoldX, cpFoldY, foldBot, H);
+    ctx.lineTo(0, H);
+    ctx.closePath();
+    ctx.clip();
+    const sg = ctx.createLinearGradient(foldTop - shadowW, H * 0.5, foldTop, H * 0.5);
     sg.addColorStop(0, 'rgba(0,0,0,0)');
-    sg.addColorStop(1, 'rgba(0,0,0,0.25)');
-  } else {
-    sg = ctx.createLinearGradient(foldTop, 0, foldTop + shadowW, 0);
-    sg.addColorStop(0, 'rgba(0,0,0,0.25)');
-    sg.addColorStop(1, 'rgba(0,0,0,0)');
-  }
-  ctx.fillStyle = sg;
-  ctx.fillRect(0, 0, W, H);
-  ctx.restore();
+    sg.addColorStop(1, 'rgba(50,28,80,0.15)'); // dark lavender tint, light
+    ctx.fillStyle = sg;
+    ctx.fillRect(0, 0, W, H);
+    ctx.restore();
 
-  // ── 3. white curl strip (simulates paper thickness + back) ──
-  ctx.save();
-  ctx.beginPath();
-  if (direction === 'backward') {
-    ctx.moveTo(foldTop,          0);
-    ctx.lineTo(foldTop + stripW, 0);
-    ctx.lineTo(foldBot + stripW, H);
-    ctx.lineTo(foldBot,          H);
+    // ── 3. curved tapered curl strip ──
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(foldTop, 0);                                         // fold top
+    ctx.quadraticCurveTo(cpFoldX, cpFoldY, foldBot, H);            // fold curve ↓
+    ctx.lineTo(foldBot + stripTrail, H);                            // strip bottom-right
+    ctx.quadraticCurveTo(cpStripX, cpStripY, foldTop + stripLead, 0); // strip right edge ↑
+    ctx.closePath();                                                 // top edge closes
+    const cg = ctx.createLinearGradient(foldTop, H * 0.5, foldTop + stripLead, H * 0.5);
+    cg.addColorStop(0,    'rgba(126,104,158,1)'); // purple-gray crease at fold
+    cg.addColorStop(0.11, 'rgba(255,255,255,1)');
+    cg.addColorStop(0.62, 'rgba(255,255,255,1)');
+    cg.addColorStop(1,    'rgba(235,232,245,0.28)'); // lavender-tinted fade
+    ctx.fillStyle = cg;
+    ctx.fill();
+    ctx.restore();
+
   } else {
-    ctx.moveTo(foldTop - stripW, 0);
-    ctx.lineTo(foldTop,          0);
-    ctx.lineTo(foldBot,          H);
-    ctx.lineTo(foldBot - stripW, H);
+    // forward — mirror of backward
+
+    // ── 1. old page clipped to unpeeled (right) region ──
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(foldTop, 0);
+    ctx.lineTo(W, 0);
+    ctx.lineTo(W, H);
+    ctx.lineTo(foldBot, H);
+    ctx.quadraticCurveTo(cpFoldX, cpFoldY, foldTop, 0);
+    ctx.closePath();
+    ctx.clip();
+    ctx.drawImage(snap, 0, 0, W, H);
+    ctx.restore();
+
+    // ── 2. shadow ──
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(foldTop, 0);
+    ctx.lineTo(W, 0);
+    ctx.lineTo(W, H);
+    ctx.lineTo(foldBot, H);
+    ctx.quadraticCurveTo(cpFoldX, cpFoldY, foldTop, 0);
+    ctx.closePath();
+    ctx.clip();
+    const sg = ctx.createLinearGradient(foldTop, H * 0.5, foldTop + shadowW, H * 0.5);
+    sg.addColorStop(0, 'rgba(50,28,80,0.15)');
+    sg.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = sg;
+    ctx.fillRect(0, 0, W, H);
+    ctx.restore();
+
+    // ── 3. curved tapered curl strip ──
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(foldTop - stripLead, 0);                              // strip top-left
+    ctx.quadraticCurveTo(cpStripX, cpStripY, foldBot - stripTrail, H); // strip left edge ↓
+    ctx.lineTo(foldBot, H);                                          // fold bottom
+    ctx.quadraticCurveTo(cpFoldX, cpFoldY, foldTop, 0);             // fold curve ↑
+    ctx.closePath();                                                  // top edge closes
+    const cg = ctx.createLinearGradient(foldTop - stripLead, H * 0.5, foldTop, H * 0.5);
+    cg.addColorStop(0,    'rgba(235,232,245,0.28)');
+    cg.addColorStop(0.38, 'rgba(255,255,255,1)');
+    cg.addColorStop(0.89, 'rgba(255,255,255,1)');
+    cg.addColorStop(1,    'rgba(126,104,158,1)');
+    ctx.fillStyle = cg;
+    ctx.fill();
+    ctx.restore();
   }
-  ctx.closePath();
-  let cg;
-  if (direction === 'backward') {
-    cg = ctx.createLinearGradient(foldTop, 0, foldTop + stripW, 0);
-    cg.addColorStop(0,    'rgba(155,155,155,1)'); // dark crease at fold
-    cg.addColorStop(0.12, 'rgba(255,255,255,1)');
-    cg.addColorStop(0.65, 'rgba(255,255,255,1)');
-    cg.addColorStop(1,    'rgba(238,238,238,0.4)');
-  } else {
-    cg = ctx.createLinearGradient(foldTop - stripW, 0, foldTop, 0);
-    cg.addColorStop(0,    'rgba(238,238,238,0.4)');
-    cg.addColorStop(0.35, 'rgba(255,255,255,1)');
-    cg.addColorStop(0.88, 'rgba(255,255,255,1)');
-    cg.addColorStop(1,    'rgba(155,155,155,1)');
-  }
-  ctx.fillStyle = cg;
-  ctx.fill();
-  ctx.restore();
 }
 
 async function animateCurl(n, direction, myGen) {
