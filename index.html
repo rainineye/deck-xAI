@@ -259,46 +259,27 @@ async function renderCanvasPage(page) {
 async function renderMobileCanvasPage(page) {
   const { unscaled, cssW, cssH } = getPageLayout(page);
   const dpr = window.devicePixelRatio || 1;
-  const pinchScale = window.visualViewport?.scale || 1;
-  const preferredRatio = Math.min(Math.max(dpr * pinchScale, dpr * 2), 8);
-  const ratios = [...new Set([preferredRatio, 4, 3, 2, 1].map(r => Math.max(1, Math.min(8, r))))];
-  let renderedCanvas = null;
-  let lastError = null;
+  // Render at 3×DPR so the user can zoom to ~3× before any blur.
+  // We never re-render during zoom (snapback prevention), so this
+  // pre-render budget must cover typical reading zoom levels.
+  const renderRatio = Math.min(dpr * 3, 8);
+  const maxPixels = 16_000_000;
+  const limitedRatio = Math.min(renderRatio, Math.sqrt(maxPixels / (cssW * cssH)));
+  const pixelW = Math.max(1, Math.round(cssW * limitedRatio));
+  const pixelH = Math.max(1, Math.round(cssH * limitedRatio));
+  const viewport = page.getViewport({ scale: pixelW / unscaled.width });
 
-  for (const ratio of ratios) {
-    try {
-      const maxPixels = 12_000_000;
-      const limitedRatio = Math.min(ratio, Math.sqrt(maxPixels / (cssW * cssH)));
-      const pixelW = Math.max(1, Math.round(cssW * limitedRatio));
-      const pixelH = Math.max(1, Math.round(cssH * limitedRatio));
-      const viewport = page.getViewport({ scale: pixelW / unscaled.width });
-      const bufferCanvas = document.createElement('canvas');
-      bufferCanvas.width = pixelW;
-      bufferCanvas.height = pixelH;
-
-      const bufferCtx = bufferCanvas.getContext('2d', { alpha: false });
-      if (!bufferCtx) throw new Error('Canvas context unavailable');
-      await page.render({ canvasContext: bufferCtx, viewport }).promise;
-      renderedCanvas = bufferCanvas;
-      break;
-    } catch (err) {
-      lastError = err;
-    }
-  }
-
-  if (!renderedCanvas) throw lastError || new Error('Unable to render mobile page');
-
-  // Create the canvas once and keep it in the DOM permanently.
-  // Replacing it (replaceChildren) triggers a DOM mutation that causes iOS/Android
-  // to reset the visual-viewport scale to 1 — the "snap-back" bug.
+  // Keep the same canvas element in the DOM permanently.
+  // Any DOM node replacement (replaceChildren) causes iOS/Android to reset
+  // the visual-viewport scale to 1 — the snap-back bug.
   if (!mobileCanvas) {
     mobileCanvas = document.createElement('canvas');
     mobileCanvas.style.display = 'block';
     mobilePage.appendChild(mobileCanvas);
   }
 
-  mobileCanvas.width  = renderedCanvas.width;
-  mobileCanvas.height = renderedCanvas.height;
+  mobileCanvas.width  = pixelW;
+  mobileCanvas.height = pixelH;
   mobileCanvas.style.width  = cssW + 'px';
   mobileCanvas.style.height = cssH + 'px';
   mobilePage.style.width  = cssW + 'px';
@@ -306,7 +287,7 @@ async function renderMobileCanvasPage(page) {
 
   const ctx = mobileCanvas.getContext('2d', { alpha: false });
   if (!ctx) throw new Error('Canvas context unavailable');
-  ctx.drawImage(renderedCanvas, 0, 0);
+  await page.render({ canvasContext: ctx, viewport }).promise;
 }
 
 async function render(num) {
@@ -410,17 +391,19 @@ document.addEventListener('touchstart', showChrome, {passive:true});
 let resizeTimer;
 function scheduleRender(delay = 150) {
   clearTimeout(resizeTimer);
-  resizeTimer = setTimeout(() => { if (pdfDoc) render(currentPage); }, delay);
+  resizeTimer = setTimeout(() => {
+    if (!pdfDoc) return;
+    // Never re-render while the user is zoomed in on mobile.
+    // canvas.width/height mutations during zoom cause iOS/Android to snap the
+    // visual viewport back to scale 1. The initial render at 3×DPR is enough
+    // for sharp display up to ~3× zoom on high-DPR devices.
+    if (isMobileCanvasMode && (window.visualViewport?.scale || 1) > 1.05) return;
+    render(currentPage);
+  }, delay);
 }
 window.addEventListener('resize', () => scheduleRender());
-if (isMobileCanvasMode && window.visualViewport) {
-  window.visualViewport.addEventListener('resize', () => {
-    // Only re-render on actual layout changes (orientation, keyboard), NOT on pinch zoom.
-    // Any DOM mutation (canvas resize, style change) while zoomed causes iOS/Android
-    // to snap the visual viewport back to scale 1.
-    if ((window.visualViewport?.scale || 1) <= 1.05) scheduleRender(220);
-  });
-}
+// No visualViewport resize listener: window resize handles orientation changes,
+// and we must never re-render during pinch zoom.
 
 // Init
 (async () => {
