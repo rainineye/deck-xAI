@@ -183,6 +183,7 @@ async function loadPdfDocument() {
       pdfjsLib.GlobalWorkerOptions.workerSrc = source.worker;
       const loadingTask = pdfjsLib.getDocument({
         url: PDF_URL,
+        fontExtraProperties: true,
         disableAutoFetch: true,
         disableStream: false,
         rangeChunkSize: 65536
