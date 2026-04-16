@@ -34,9 +34,8 @@ body { display:flex; flex-direction:column; align-items:center; justify-content:
 canvas { display:block; max-width:100vw; max-height:100vh; box-shadow:0 0 0 1px var(--bg), 0 20px 80px rgba(0,0,0,0.5); background:var(--bg); }
 canvas.pre-render { visibility:hidden; }
 canvas.back { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); visibility:hidden; pointer-events:none; }
-#mobile-page { display:none; align-items:center; justify-content:center; overflow:hidden; max-width:100vw; max-height:100vh; box-shadow:0 20px 80px rgba(0,0,0,0.5); background:var(--bg); }
-body.mobile-canvas > #stage canvas,
-body.mobile-canvas #anno-layer { display:none; }
+#mobile-page { display:none; align-items:center; justify-content:center; overflow:hidden; max-width:100vw; max-height:100vh; box-shadow:0 20px 80px rgba(0,0,0,0.5); background:var(--bg); position:relative; }
+body.mobile-canvas > #stage canvas { display:none; }
 body.mobile-canvas #mobile-page { display:flex; }
 body.mobile-canvas #mobile-page canvas { display:block; }
 
@@ -288,6 +287,29 @@ async function renderMobileCanvasPage(page) {
   const ctx = mobileCanvas.getContext('2d', { alpha: false });
   if (!ctx) throw new Error('Canvas context unavailable');
   await page.render({ canvasContext: ctx, viewport }).promise;
+
+  // Rebuild annotation layer (clickable links) — same logic as desktop
+  const canvasScaleX = pixelW / cssW;
+  const canvasScaleY = pixelH / cssH;
+  annoLayer.innerHTML = '';
+  annoLayer.style.width  = cssW + 'px';
+  annoLayer.style.height = cssH + 'px';
+  const annotations = await page.getAnnotations();
+  for (const anno of annotations) {
+    if (anno.subtype !== 'Link' || !anno.url) continue;
+    const [x1, y1, x2, y2] = pdfjsLib.Util.normalizeRect(
+      viewport.convertToViewportRectangle(anno.rect)
+    );
+    const a = document.createElement('a');
+    a.href = anno.url;
+    a.target = '_blank';
+    a.rel = 'noopener noreferrer';
+    a.style.left   = (x1 / canvasScaleX) + 'px';
+    a.style.top    = (y1 / canvasScaleY) + 'px';
+    a.style.width  = ((x2 - x1) / canvasScaleX) + 'px';
+    a.style.height = ((y2 - y1) / canvasScaleY) + 'px';
+    annoLayer.appendChild(a);
+  }
 }
 
 async function render(num) {
@@ -314,11 +336,91 @@ async function render(num) {
   }
 }
 
+// Mobile page-flip animation
+let flipEl = null;  // overlay canvas that "peels away"
+let isFlipping = false;
+
+function getFlipEl() {
+  if (!flipEl) {
+    flipEl = document.createElement('canvas');
+    // Mount on canvas-wrap (not mobile-page) so overflow:hidden on mobile-page
+    // doesn't clip the 3D rotation. canvas-wrap is position:relative.
+    flipEl.style.cssText = 'position:absolute;display:none;z-index:10;pointer-events:none;box-shadow:none;background:#000;';
+    document.getElementById('canvas-wrap').appendChild(flipEl);
+  }
+  return flipEl;
+}
+
+async function animateFlip(n, direction) {
+  const fe = getFlipEl();
+
+  // Snapshot current page onto flipEl
+  const snapW = mobileCanvas.width, snapH = mobileCanvas.height;
+  const snapCssW = mobileCanvas.style.width, snapCssH = mobileCanvas.style.height;
+  fe.width = snapW;
+  fe.height = snapH;
+  fe.style.width  = snapCssW;
+  fe.style.height = snapCssH;
+  const fCtx = fe.getContext('2d');
+  if (!fCtx) throw new Error('flipEl context unavailable');
+  fCtx.drawImage(mobileCanvas, 0, 0);
+
+  // Curl-shadow gradient on the turning (leading) edge
+  const shadowW = Math.round(snapW * 0.18);
+  const grad = direction === 'forward'
+    ? fCtx.createLinearGradient(snapW - shadowW, 0, snapW, 0)   // right edge darkens
+    : fCtx.createLinearGradient(shadowW, 0, 0, 0);               // left edge darkens
+  grad.addColorStop(0, 'rgba(0,0,0,0)');
+  grad.addColorStop(1, 'rgba(0,0,0,0.38)');
+  fCtx.fillStyle = grad;
+  fCtx.fillRect(direction === 'forward' ? snapW - shadowW : 0, 0, shadowW, snapH);
+
+  // Position flipEl exactly over mobilePage in canvas-wrap coordinates
+  const mpRect = mobilePage.getBoundingClientRect();
+  const cwRect = document.getElementById('canvas-wrap').getBoundingClientRect();
+  fe.style.left = (mpRect.left - cwRect.left) + 'px';
+  fe.style.top  = (mpRect.top  - cwRect.top)  + 'px';
+
+  // Pivot on leading edge; target angle
+  const endAngle = direction === 'forward' ? -90 : 90;
+  fe.style.transformOrigin = direction === 'forward' ? 'right center' : 'left center';
+  fe.style.display = 'block';
+
+  // Render new page into mobileCanvas while flipEl covers it
+  await render(n);
+
+  // Animate 0° → endAngle with ease-in-out cubic
+  const DURATION = 420;
+  const t0 = performance.now();
+  await new Promise(resolve => {
+    function step(now) {
+      const raw = Math.min((now - t0) / DURATION, 1);
+      const ease = raw < 0.5 ? 4*raw*raw*raw : 1 - Math.pow(-2*raw+2, 3)/2;
+      fe.style.transform = `perspective(1400px) rotateY(${ease * endAngle}deg)`;
+      if (raw < 1) { requestAnimationFrame(step); }
+      else {
+        fe.style.display = 'none';
+        fe.style.transform = '';
+        resolve();
+      }
+    }
+    requestAnimationFrame(step);
+  });
+}
+
 function go(n) {
   n = Math.max(1, Math.min(totalPages, n));
-  if (n === currentPage) return;
+  if (n === currentPage || isFlipping) return;
+  const direction = n > currentPage ? 'forward' : 'backward';
   currentPage = n;
-  render(n);
+  if (isMobileCanvasMode && mobileCanvas) {
+    isFlipping = true;
+    animateFlip(n, direction)
+      .catch(() => render(n))   // if animation fails, fall back to direct render
+      .finally(() => { isFlipping = false; });
+  } else {
+    render(n);
+  }
 }
 
 function resetMobileZoom() {
@@ -398,6 +500,7 @@ function scheduleRender(delay = 150) {
     // visual viewport back to scale 1. The initial render at 3×DPR is enough
     // for sharp display up to ~3× zoom on high-DPR devices.
     if (isMobileCanvasMode && (window.visualViewport?.scale || 1) > 1.05) return;
+    if (isFlipping) return;
     render(currentPage);
   }, delay);
 }
