@@ -426,9 +426,9 @@ function drawCurlFrame(ctx, snap, W, H, progress, direction) {
     ctx.closePath();                                                 // top edge closes
     const cg = ctx.createLinearGradient(foldTop, H * 0.5, foldTop + stripLead, H * 0.5);
     cg.addColorStop(0,    'rgba(126,104,158,1)'); // purple-gray crease at fold
-    cg.addColorStop(0.11, 'rgba(255,255,255,1)');
-    cg.addColorStop(0.62, 'rgba(255,255,255,1)');
-    cg.addColorStop(1,    'rgba(235,232,245,0.28)'); // lavender-tinted fade
+    cg.addColorStop(0.11, 'rgba(228,225,238,1)');
+    cg.addColorStop(0.62, 'rgba(228,225,238,1)');
+    cg.addColorStop(1,    'rgba(210,207,225,0.28)'); // lavender-tinted fade
     ctx.fillStyle = cg;
     ctx.fill();
     ctx.restore();
@@ -475,9 +475,9 @@ function drawCurlFrame(ctx, snap, W, H, progress, direction) {
     ctx.quadraticCurveTo(cpFoldX, cpFoldY, foldTop, 0);             // fold curve ↑
     ctx.closePath();                                                  // top edge closes
     const cg = ctx.createLinearGradient(foldTop - stripLead, H * 0.5, foldTop, H * 0.5);
-    cg.addColorStop(0,    'rgba(235,232,245,0.28)');
-    cg.addColorStop(0.38, 'rgba(255,255,255,1)');
-    cg.addColorStop(0.89, 'rgba(255,255,255,1)');
+    cg.addColorStop(0,    'rgba(210,207,225,0.28)');
+    cg.addColorStop(0.38, 'rgba(228,225,238,1)');
+    cg.addColorStop(0.89, 'rgba(228,225,238,1)');
     cg.addColorStop(1,    'rgba(126,104,158,1)');
     ctx.fillStyle = cg;
     ctx.fill();
