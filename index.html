@@ -139,6 +139,13 @@ function setProgress(pct) {
 let frontCanvas = document.getElementById('canvas');
 let backCanvas = document.getElementById('canvas-back');
 
+function getRenderRatio() {
+  const isMobile = window.matchMedia('(max-width: 768px)').matches;
+  const baseDpr = Math.min(window.devicePixelRatio || 1, isMobile ? 3 : 2);
+  const pinchScale = isMobile ? (window.visualViewport?.scale || 1) : 1;
+  return Math.min(baseDpr * pinchScale, isMobile ? 6 : 3);
+}
+
 function showLoadError(message) {
   loader.classList.remove('hide');
   loaderLabel.textContent = 'FAILED TO LOAD · ' + message + ' · ';
@@ -193,15 +200,14 @@ async function render(num) {
   rendering = true;
   try {
     const page = await pdfDoc.getPage(num);
-    const isMobile = window.matchMedia('(max-width: 768px)').matches;
-    const dpr = Math.min(window.devicePixelRatio || 1, isMobile ? 3 : 2);
+    const renderRatio = getRenderRatio();
     const vw = window.innerWidth, vh = window.innerHeight;
     const unscaled = page.getViewport({ scale: 1 });
     const scale = Math.min(vw / unscaled.width, vh / unscaled.height) * 0.96;
     // Round CSS dimensions to whole pixels to eliminate sub-pixel white border
     const cssW = Math.round(unscaled.width * scale);
     const cssH = Math.round(unscaled.height * scale);
-    const renderScale = scale * dpr;
+    const renderScale = scale * renderRatio;
     const viewport = page.getViewport({ scale: renderScale });
     const pixelW = Math.ceil(viewport.width);
     const pixelH = Math.ceil(viewport.height);
@@ -313,7 +319,14 @@ document.addEventListener('touchstart', showChrome, {passive:true});
 
 // Resize
 let resizeTimer;
-window.addEventListener('resize', () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(() => { if (pdfDoc) render(currentPage); }, 150); });
+function scheduleRender(delay = 150) {
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(() => { if (pdfDoc) render(currentPage); }, delay);
+}
+window.addEventListener('resize', () => scheduleRender());
+if (window.visualViewport) {
+  window.visualViewport.addEventListener('resize', () => scheduleRender(220));
+}
 
 // Init
 (async () => {
