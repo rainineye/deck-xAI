@@ -336,88 +336,96 @@ async function render(num) {
   }
 }
 
-// Mobile page-flip animation
-let flipEl = null;  // overlay canvas that "peels away"
-let isFlipping = false;
+// Mobile page-flip — CSS 3D book-turn (ref: codepen.io/diemoritat/pen/LKROYZ)
+let flipWrapper = null, flipInner = null, flipFront = null;
+let flipGen = 0;
 
-function getFlipEl() {
-  if (!flipEl) {
-    flipEl = document.createElement('canvas');
-    // Mount on canvas-wrap (not mobile-page) so overflow:hidden on mobile-page
-    // doesn't clip the 3D rotation. canvas-wrap is position:relative.
-    flipEl.style.cssText = 'position:absolute;display:none;z-index:10;pointer-events:none;box-shadow:none;background:#000;';
-    document.getElementById('canvas-wrap').appendChild(flipEl);
-  }
-  return flipEl;
+function ensureFlipDOM() {
+  if (flipWrapper) return;
+  const cw = document.getElementById('canvas-wrap');
+
+  // Outer container carries the perspective, mounted on canvas-wrap
+  // so it is not clipped by mobile-page's overflow:hidden.
+  flipWrapper = document.createElement('div');
+  flipWrapper.style.cssText = 'position:absolute;display:none;z-index:10;pointer-events:none;perspective:1200px;';
+
+  // Inner element rotates in 3-D; contains front face (canvas) + back face (white div)
+  flipInner = document.createElement('div');
+  flipInner.style.cssText = 'width:100%;height:100%;transform-style:preserve-3d;transform:rotateY(0deg);';
+
+  // Front face — snapshot of the current page
+  flipFront = document.createElement('canvas');
+  flipFront.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;backface-visibility:hidden;-webkit-backface-visibility:hidden;box-shadow:none;';
+
+  // Back face — white (paper back), pre-rotated so it faces the camera at ±180°
+  const flipBack = document.createElement('div');
+  flipBack.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;background:#fff;backface-visibility:hidden;-webkit-backface-visibility:hidden;transform:rotateY(180deg);';
+
+  flipInner.appendChild(flipFront);
+  flipInner.appendChild(flipBack);
+  flipWrapper.appendChild(flipInner);
+  cw.appendChild(flipWrapper);
 }
 
-async function animateFlip(n, direction) {
-  const fe = getFlipEl();
+async function animateFlip(n, direction, myGen) {
+  ensureFlipDOM();
 
-  // Snapshot current page onto flipEl
-  const snapW = mobileCanvas.width, snapH = mobileCanvas.height;
-  const snapCssW = mobileCanvas.style.width, snapCssH = mobileCanvas.style.height;
-  fe.width = snapW;
-  fe.height = snapH;
-  fe.style.width  = snapCssW;
-  fe.style.height = snapCssH;
-  const fCtx = fe.getContext('2d');
-  if (!fCtx) throw new Error('flipEl context unavailable');
-  fCtx.drawImage(mobileCanvas, 0, 0);
+  // Snapshot the current page onto the front face canvas
+  const W = mobileCanvas.width, H = mobileCanvas.height;
+  flipFront.width  = W;
+  flipFront.height = H;
+  flipFront.getContext('2d').drawImage(mobileCanvas, 0, 0);
 
-  // Curl-shadow gradient on the turning (leading) edge
-  const shadowW = Math.round(snapW * 0.18);
-  const grad = direction === 'forward'
-    ? fCtx.createLinearGradient(snapW - shadowW, 0, snapW, 0)   // right edge darkens
-    : fCtx.createLinearGradient(shadowW, 0, 0, 0);               // left edge darkens
-  grad.addColorStop(0, 'rgba(0,0,0,0)');
-  grad.addColorStop(1, 'rgba(0,0,0,0.38)');
-  fCtx.fillStyle = grad;
-  fCtx.fillRect(direction === 'forward' ? snapW - shadowW : 0, 0, shadowW, snapH);
-
-  // Position flipEl exactly over mobilePage in canvas-wrap coordinates
+  // Size and position flipWrapper to exactly overlay mobilePage
   const mpRect = mobilePage.getBoundingClientRect();
   const cwRect = document.getElementById('canvas-wrap').getBoundingClientRect();
-  fe.style.left = (mpRect.left - cwRect.left) + 'px';
-  fe.style.top  = (mpRect.top  - cwRect.top)  + 'px';
+  flipWrapper.style.left   = (mpRect.left - cwRect.left) + 'px';
+  flipWrapper.style.top    = (mpRect.top  - cwRect.top)  + 'px';
+  flipWrapper.style.width  = mobileCanvas.style.width;
+  flipWrapper.style.height = mobileCanvas.style.height;
 
-  // Pivot on leading edge; target angle
-  const endAngle = direction === 'forward' ? -90 : 90;
-  fe.style.transformOrigin = direction === 'forward' ? 'right center' : 'left center';
-  fe.style.display = 'block';
+  // backward (right swipe): pivot left edge, swing right side over → rotateY(-180)
+  // forward  (left swipe):  pivot right edge, swing left side over → rotateY(+180)
+  const origin   = direction === 'backward' ? '0% 50%' : '100% 50%';
+  const endAngle = direction === 'backward' ? -180 : 180;
 
-  // Render new page into mobileCanvas while flipEl covers it
+  // Reset inner to start position instantly (no transition yet)
+  flipInner.style.transition    = 'none';
+  flipInner.style.transformOrigin = origin;
+  flipInner.style.transform     = 'rotateY(0deg)';
+  flipWrapper.style.display     = 'block';
+
+  // Render the new page into mobileCanvas while flipWrapper covers it
   await render(n);
+  if (flipGen !== myGen) { flipWrapper.style.display = 'none'; return; }
 
-  // Animate 0° → endAngle with ease-in-out cubic
-  const DURATION = 420;
-  const t0 = performance.now();
+  // Reflow so the browser locks in the initial state before transitioning
+  void flipWrapper.offsetHeight;
+
+  // Fire the CSS transition
+  flipInner.style.transition = 'transform 0.9s cubic-bezier(0.645, 0.045, 0.355, 1)';
+  flipInner.style.transform  = `rotateY(${endAngle}deg)`;
+
+  // Wait for transition end (safety timeout in case transitionend doesn't fire)
   await new Promise(resolve => {
-    function step(now) {
-      const raw = Math.min((now - t0) / DURATION, 1);
-      const ease = raw < 0.5 ? 4*raw*raw*raw : 1 - Math.pow(-2*raw+2, 3)/2;
-      fe.style.transform = `perspective(1400px) rotateY(${ease * endAngle}deg)`;
-      if (raw < 1) { requestAnimationFrame(step); }
-      else {
-        fe.style.display = 'none';
-        fe.style.transform = '';
-        resolve();
-      }
+    const safetyTimer = setTimeout(() => { done(); }, 1000);
+    function done() {
+      clearTimeout(safetyTimer);
+      if (flipGen === myGen) flipWrapper.style.display = 'none';
+      resolve();
     }
-    requestAnimationFrame(step);
+    flipInner.addEventListener('transitionend', done, { once: true });
   });
 }
 
 function go(n) {
   n = Math.max(1, Math.min(totalPages, n));
-  if (n === currentPage || isFlipping) return;
+  if (n === currentPage) return;
   const direction = n > currentPage ? 'forward' : 'backward';
   currentPage = n;
   if (isMobileCanvasMode && mobileCanvas) {
-    isFlipping = true;
-    animateFlip(n, direction)
-      .catch(() => render(n))   // if animation fails, fall back to direct render
-      .finally(() => { isFlipping = false; });
+    const myGen = ++flipGen; // cancels any in-progress animation
+    animateFlip(n, direction, myGen).catch(() => render(n));
   } else {
     render(n);
   }
@@ -500,7 +508,6 @@ function scheduleRender(delay = 150) {
     // visual viewport back to scale 1. The initial render at 3×DPR is enough
     // for sharp display up to ~3× zoom on high-DPR devices.
     if (isMobileCanvasMode && (window.visualViewport?.scale || 1) > 1.05) return;
-    if (isFlipping) return;
     render(currentPage);
   }, delay);
 }
