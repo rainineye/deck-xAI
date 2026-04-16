@@ -261,7 +261,7 @@ async function renderSvgPage(page) {
   const viewport = page.getViewport({ scale });
   const opList = await page.getOperatorList();
   const svgGfx = new pdfjsLib.SVGGraphics(page.commonObjs, page.objs);
-  svgGfx.embedFonts = true;
+  svgGfx.embedFonts = false;
   const svg = await svgGfx.getSVG(opList, viewport);
   svg.setAttribute('width', cssW);
   svg.setAttribute('height', cssH);
