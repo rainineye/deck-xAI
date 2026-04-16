@@ -36,7 +36,7 @@ canvas.pre-render { visibility:hidden; }
 canvas.back { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); visibility:hidden; pointer-events:none; }
 
 /* Annotation layer: transparent overlay for clickable links */
-#anno-layer { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); overflow:hidden; pointer-events:none; z-index:15; }
+#anno-layer { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); overflow:hidden; pointer-events:none; z-index:20; }
 #anno-layer a { position:absolute; pointer-events:auto; cursor:pointer; }
 
 /* Loader */
@@ -52,7 +52,7 @@ canvas.back { position:absolute; top:50%; left:50%; transform:translate(-50%,-50
 @keyframes pulse { 0%,100%{opacity:.3} 50%{opacity:1} }
 
 /* Click zones for nav (invisible) */
-.nav-zone { position:absolute; top:0; height:100%; width:25%; z-index:10; cursor:pointer; }
+.nav-zone { position:absolute; top:0; height:100%; width:25%; z-index:18; cursor:pointer; touch-action:manipulation; }
 .nav-zone.prev { left:0; }
 .nav-zone.next { right:0; cursor:e-resize; }
 .nav-zone.prev { cursor:w-resize; }
@@ -195,8 +195,7 @@ async function render(num) {
     const page = await pdfDoc.getPage(num);
     const isMobile = window.matchMedia('(max-width: 768px)').matches;
     const dpr = Math.min(window.devicePixelRatio || 1, isMobile ? 3 : 2);
-    const vw = window.visualViewport?.width || window.innerWidth;
-    const vh = window.visualViewport?.height || window.innerHeight;
+    const vw = window.innerWidth, vh = window.innerHeight;
     const unscaled = page.getViewport({ scale: 1 });
     const scale = Math.min(vw / unscaled.width, vh / unscaled.height) * 0.96;
     // Round CSS dimensions to whole pixels to eliminate sub-pixel white border
@@ -264,8 +263,21 @@ function go(n) {
 }
 
 // Nav
-document.getElementById('prevZone').addEventListener('click', () => go(currentPage - 1));
-document.getElementById('nextZone').addEventListener('click', () => go(currentPage + 1));
+let lastZoneNavAt = 0;
+function bindNavZone(id, delta) {
+  const zone = document.getElementById(id);
+  const navigate = e => {
+    e.preventDefault();
+    const now = Date.now();
+    if (now - lastZoneNavAt < 350) return;
+    lastZoneNavAt = now;
+    go(currentPage + delta);
+  };
+  zone.addEventListener('pointerup', navigate);
+  zone.addEventListener('click', navigate);
+}
+bindNavZone('prevZone', -1);
+bindNavZone('nextZone', 1);
 
 document.addEventListener('keydown', e => {
   if (e.key === 'ArrowRight' || e.key === 'ArrowDown' || e.key === ' ' || e.key === 'PageDown') { e.preventDefault(); go(currentPage + 1); }
