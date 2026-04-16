@@ -31,7 +31,7 @@ body { display:flex; flex-direction:column; align-items:center; justify-content:
 
 #stage { width:100vw; height:100vh; height:100dvh; display:flex; align-items:center; justify-content:center; position:relative; cursor:default; }
 #canvas-wrap { position:relative; max-width:100vw; max-height:100vh; display:flex; align-items:center; justify-content:center; }
-canvas { display:block; max-width:100vw; max-height:100vh; box-shadow:0 20px 80px rgba(0,0,0,0.5); background:transparent; }
+canvas { display:block; max-width:100vw; max-height:100vh; box-shadow:0 0 0 1px var(--bg), 0 20px 80px rgba(0,0,0,0.5); background:var(--bg); }
 canvas.pre-render { visibility:hidden; }
 canvas.back { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); visibility:hidden; pointer-events:none; }
 
@@ -147,10 +147,7 @@ let frontCanvas = document.getElementById('canvas');
 let backCanvas = document.getElementById('canvas-back');
 
 function getRenderRatio() {
-  const isMobile = window.matchMedia('(max-width: 768px)').matches;
-  const baseDpr = Math.min(window.devicePixelRatio || 1, isMobile ? 3 : 2);
-  const pinchScale = isMobile ? (window.visualViewport?.scale || 1) : 1;
-  return Math.min(baseDpr * pinchScale, isMobile ? 6 : 3);
+  return Math.min(window.devicePixelRatio || 1, 2);
 }
 
 function showLoadError(message) {
@@ -214,10 +211,10 @@ async function render(num) {
     // Round CSS dimensions to whole pixels to eliminate sub-pixel white border
     const cssW = Math.round(unscaled.width * scale);
     const cssH = Math.round(unscaled.height * scale);
-    const renderScale = scale * renderRatio;
-    const viewport = page.getViewport({ scale: renderScale });
-    const pixelW = Math.ceil(viewport.width);
-    const pixelH = Math.ceil(viewport.height);
+    // Derive physical pixels from CSS pixels to guarantee exact alignment (no sub-pixel gap)
+    const pixelW = Math.round(cssW * renderRatio);
+    const pixelH = Math.round(cssH * renderRatio);
+    const viewport = page.getViewport({ scale: pixelW / unscaled.width });
     const canvasScaleX = pixelW / cssW;
     const canvasScaleY = pixelH / cssH;
     // Render to the OFF-screen back canvas
@@ -331,9 +328,6 @@ function scheduleRender(delay = 150) {
   resizeTimer = setTimeout(() => { if (pdfDoc) render(currentPage); }, delay);
 }
 window.addEventListener('resize', () => scheduleRender());
-if (window.visualViewport) {
-  window.visualViewport.addEventListener('resize', () => scheduleRender(220));
-}
 
 // Init
 (async () => {
