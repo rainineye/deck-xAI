@@ -465,8 +465,28 @@ function drawCurlFrame(ctx, snap, dest, W, H, progress, direction) {
   const cpStripX = cpFoldX + stripMid * bowDir;
   const cpStripY = H * 0.5;
 
+  // Cast shadow intensity: peaks mid-animation when curl is most lifted
+  const castAlpha = (0.3 * Math.sin(p * Math.PI)).toFixed(3);
+
   if (direction === 'backward') {
-    // ── 1. old page clipped to unpeeled (left) region ──
+    // ── 1. cast shadow on destination (right of fold) ──
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(foldTop, 0);
+    ctx.lineTo(W, 0);
+    ctx.lineTo(W, H);
+    ctx.lineTo(foldBot, H);
+    ctx.quadraticCurveTo(cpFoldX, cpFoldY, foldTop, 0);
+    ctx.closePath();
+    ctx.clip();
+    const castSg = ctx.createLinearGradient(foldTop, H * 0.5, foldTop + shadowW * 2.2, H * 0.5);
+    castSg.addColorStop(0, `rgba(20,10,40,${castAlpha})`);
+    castSg.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = castSg;
+    ctx.fillRect(0, 0, W, H);
+    ctx.restore();
+
+    // ── 2. old page clipped to unpeeled (left) region ──
     ctx.save();
     ctx.beginPath();
     ctx.moveTo(0, 0);
@@ -478,7 +498,7 @@ function drawCurlFrame(ctx, snap, dest, W, H, progress, direction) {
     ctx.drawImage(snap, 0, 0, W, H);
     ctx.restore();
 
-    // ── 2. shadow — subtle, purple-tinted ──
+    // ── 3. shadow on old page near fold ──
     ctx.save();
     ctx.beginPath();
     ctx.moveTo(0, 0);
@@ -489,32 +509,47 @@ function drawCurlFrame(ctx, snap, dest, W, H, progress, direction) {
     ctx.clip();
     const sg = ctx.createLinearGradient(foldTop - shadowW, H * 0.5, foldTop, H * 0.5);
     sg.addColorStop(0, 'rgba(0,0,0,0)');
-    sg.addColorStop(1, 'rgba(50,28,80,0.15)'); // dark lavender tint, light
+    sg.addColorStop(1, 'rgba(50,28,80,0.22)');
     ctx.fillStyle = sg;
     ctx.fillRect(0, 0, W, H);
     ctx.restore();
 
-    // ── 3. curved tapered curl strip ──
+    // ── 4. curl strip with convex highlight ──
     ctx.save();
     ctx.beginPath();
-    ctx.moveTo(foldTop, 0);                                         // fold top
-    ctx.quadraticCurveTo(cpFoldX, cpFoldY, foldBot, H);            // fold curve ↓
-    ctx.lineTo(foldBot + stripTrail, H);                            // strip bottom-right
-    ctx.quadraticCurveTo(cpStripX, cpStripY, foldTop + stripLead, 0); // strip right edge ↑
-    ctx.closePath();                                                 // top edge closes
+    ctx.moveTo(foldTop, 0);
+    ctx.quadraticCurveTo(cpFoldX, cpFoldY, foldBot, H);
+    ctx.lineTo(foldBot + stripTrail, H);
+    ctx.quadraticCurveTo(cpStripX, cpStripY, foldTop + stripLead, 0);
+    ctx.closePath();
     const cg = ctx.createLinearGradient(foldTop, H * 0.5, foldTop + stripLead, H * 0.5);
-    cg.addColorStop(0,    'rgba(126,104,158,1)'); // purple-gray crease at fold
-    cg.addColorStop(0.11, 'rgba(228,225,238,1)');
-    cg.addColorStop(0.62, 'rgba(228,225,238,1)');
-    cg.addColorStop(1,    'rgba(210,207,225,0.28)'); // lavender-tinted fade
+    cg.addColorStop(0,    'rgba(110,88,142,1)');
+    cg.addColorStop(0.10, 'rgba(228,225,238,1)');
+    cg.addColorStop(0.42, 'rgba(246,244,252,1)'); // convex highlight at curve peak
+    cg.addColorStop(0.72, 'rgba(228,225,238,1)');
+    cg.addColorStop(1,    'rgba(215,212,228,1)');
     ctx.fillStyle = cg;
     ctx.fill();
     ctx.restore();
 
   } else {
-    // forward — mirror of backward
+    // ── 1. cast shadow on destination (left of fold) ──
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.lineTo(foldTop, 0);
+    ctx.quadraticCurveTo(cpFoldX, cpFoldY, foldBot, H);
+    ctx.lineTo(0, H);
+    ctx.closePath();
+    ctx.clip();
+    const castSg = ctx.createLinearGradient(foldTop, H * 0.5, foldTop - shadowW * 2.2, H * 0.5);
+    castSg.addColorStop(0, `rgba(20,10,40,${castAlpha})`);
+    castSg.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = castSg;
+    ctx.fillRect(0, 0, W, H);
+    ctx.restore();
 
-    // ── 1. old page clipped to unpeeled (right) region ──
+    // ── 2. old page clipped to unpeeled (right) region ──
     ctx.save();
     ctx.beginPath();
     ctx.moveTo(foldTop, 0);
@@ -527,7 +562,7 @@ function drawCurlFrame(ctx, snap, dest, W, H, progress, direction) {
     ctx.drawImage(snap, 0, 0, W, H);
     ctx.restore();
 
-    // ── 2. shadow ──
+    // ── 3. shadow on old page near fold ──
     ctx.save();
     ctx.beginPath();
     ctx.moveTo(foldTop, 0);
@@ -538,25 +573,26 @@ function drawCurlFrame(ctx, snap, dest, W, H, progress, direction) {
     ctx.closePath();
     ctx.clip();
     const sg = ctx.createLinearGradient(foldTop, H * 0.5, foldTop + shadowW, H * 0.5);
-    sg.addColorStop(0, 'rgba(50,28,80,0.15)');
+    sg.addColorStop(0, 'rgba(50,28,80,0.22)');
     sg.addColorStop(1, 'rgba(0,0,0,0)');
     ctx.fillStyle = sg;
     ctx.fillRect(0, 0, W, H);
     ctx.restore();
 
-    // ── 3. curved tapered curl strip ──
+    // ── 4. curl strip with convex highlight ──
     ctx.save();
     ctx.beginPath();
-    ctx.moveTo(foldTop - stripLead, 0);                              // strip top-left
-    ctx.quadraticCurveTo(cpStripX, cpStripY, foldBot - stripTrail, H); // strip left edge ↓
-    ctx.lineTo(foldBot, H);                                          // fold bottom
-    ctx.quadraticCurveTo(cpFoldX, cpFoldY, foldTop, 0);             // fold curve ↑
-    ctx.closePath();                                                  // top edge closes
+    ctx.moveTo(foldTop - stripLead, 0);
+    ctx.quadraticCurveTo(cpStripX, cpStripY, foldBot - stripTrail, H);
+    ctx.lineTo(foldBot, H);
+    ctx.quadraticCurveTo(cpFoldX, cpFoldY, foldTop, 0);
+    ctx.closePath();
     const cg = ctx.createLinearGradient(foldTop - stripLead, H * 0.5, foldTop, H * 0.5);
-    cg.addColorStop(0,    'rgba(210,207,225,0.28)');
-    cg.addColorStop(0.38, 'rgba(228,225,238,1)');
-    cg.addColorStop(0.89, 'rgba(228,225,238,1)');
-    cg.addColorStop(1,    'rgba(126,104,158,1)');
+    cg.addColorStop(0,    'rgba(215,212,228,1)');
+    cg.addColorStop(0.28, 'rgba(228,225,238,1)');
+    cg.addColorStop(0.58, 'rgba(246,244,252,1)'); // convex highlight at curve peak
+    cg.addColorStop(0.90, 'rgba(228,225,238,1)');
+    cg.addColorStop(1,    'rgba(110,88,142,1)');
     ctx.fillStyle = cg;
     ctx.fill();
     ctx.restore();
