@@ -349,7 +349,8 @@ async function render(num) {
 // backward = right swipe → peel from top-right corner, sweep left
 // forward  = left  swipe → peel from top-left  corner, sweep right
 let curlCanvas = null, curlCtx = null;
-let snapCanvas = null; // offscreen snapshot of departing page
+let snapCanvas = null;     // offscreen snapshot of departing page
+let destSnapCanvas = null; // offscreen snapshot of destination page
 let flipGen = 0;
 
 // ── Adjacent-page pre-render cache ──
@@ -428,8 +429,11 @@ function ensureCurlCanvas() {
   curlCtx = curlCanvas.getContext('2d');
 }
 
-function drawCurlFrame(ctx, snap, W, H, progress, direction) {
+function drawCurlFrame(ctx, snap, dest, W, H, progress, direction) {
   ctx.clearRect(0, 0, W, H);
+  // Draw destination page as background — visible in peeled area.
+  // This avoids relying on canvas-layer compositing (black on mobile).
+  if (dest) ctx.drawImage(dest, 0, 0, W, H);
 
   // ease-in-out
   const p = progress;
@@ -569,19 +573,23 @@ async function animateCurl(n, direction, myGen) {
   snapCanvas.width = W; snapCanvas.height = H;
   snapCanvas.getContext('2d').drawImage(mobileCanvas, 0, 0);
 
+  // Prepare destination snapshot canvas (drawn into curlCanvas as background each frame)
+  if (!destSnapCanvas) destSnapCanvas = document.createElement('canvas');
+  destSnapCanvas.width = W; destSnapCanvas.height = H;
+
   // Size curlCanvas to match mobileCanvas exactly
   curlCanvas.width  = W;
   curlCanvas.height = H;
   curlCanvas.style.width  = mobileCanvas.style.width;
   curlCanvas.style.height = mobileCanvas.style.height;
-  // Draw first frame immediately so curlCanvas fully covers mobileCanvas
-  // while render(n) rewrites it underneath — prevents flash of new page.
   curlCanvas.style.display = 'block';
-  drawCurlFrame(curlCtx, snapCanvas, W, H, 0, direction);
 
   // Apply destination page — instant from cache, or fallback to async render
   const cached = pageCache.get(n);
   if (cached) {
+    // Populate destination snapshot immediately (cache = sync)
+    destSnapCanvas.getContext('2d').drawImage(cached.canvas, 0, 0, W, H);
+    // Also write to mobileCanvas so it's correct after the animation ends
     if (mobileCanvas.width !== cached.pixelW || mobileCanvas.height !== cached.pixelH) {
       mobileCanvas.width  = cached.pixelW;
       mobileCanvas.height = cached.pixelH;
@@ -595,11 +603,18 @@ async function animateCurl(n, direction, myGen) {
     const url = new URL(window.location);
     if (n === 1) url.searchParams.delete('page'); else url.searchParams.set('page', n);
     window.history.replaceState({}, '', url);
-    // Rebuild annotation layer concurrently (invisible during curl, ready when it finishes)
     rebuildAnnotationsForPage(n).catch(() => {});
   } else {
+    // Draw frame 0 (full old page) while render runs underneath
+    drawCurlFrame(curlCtx, snapCanvas, null, W, H, 0, direction);
     await render(n);
+    if (flipGen !== myGen) { curlCanvas.style.display = 'none'; return; }
+    // Snapshot the freshly-rendered destination from mobileCanvas
+    destSnapCanvas.getContext('2d').drawImage(mobileCanvas, 0, 0);
   }
+
+  // Draw first animation frame with destination background now ready
+  drawCurlFrame(curlCtx, snapCanvas, destSnapCanvas, W, H, 0, direction);
   if (flipGen !== myGen) { curlCanvas.style.display = 'none'; return; }
 
   const DURATION = 650; // ms
@@ -614,7 +629,7 @@ async function animateCurl(n, direction, myGen) {
         return;
       }
       const progress = Math.min((now - t0) / DURATION, 1);
-      drawCurlFrame(curlCtx, snapCanvas, W, H, progress, direction);
+      drawCurlFrame(curlCtx, snapCanvas, destSnapCanvas, W, H, progress, direction);
       if (progress < 1) {
         requestAnimationFrame(frame);
       } else {
