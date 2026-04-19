@@ -352,6 +352,74 @@ let curlCanvas = null, curlCtx = null;
 let snapCanvas = null; // offscreen snapshot of departing page
 let flipGen = 0;
 
+// ── Adjacent-page pre-render cache ──
+const pageCache = new Map(); // pageNum → { canvas, cssW, cssH, pixelW, pixelH }
+const preRenderInProgress = new Set();
+
+async function preRenderPage(num) {
+  if (!pdfDoc || num < 1 || num > totalPages) return;
+  if (pageCache.has(num) || preRenderInProgress.has(num)) return;
+  preRenderInProgress.add(num);
+  try {
+    const page = await pdfDoc.getPage(num);
+    const { unscaled, cssW, cssH } = getPageLayout(page);
+    const dpr = window.devicePixelRatio || 1;
+    const renderRatio = Math.min(dpr * 3, 8);
+    const maxPixels = 16_000_000;
+    const limitedRatio = Math.min(renderRatio, Math.sqrt(maxPixels / (cssW * cssH)));
+    const pixelW = Math.max(1, Math.round(cssW * limitedRatio));
+    const pixelH = Math.max(1, Math.round(cssH * limitedRatio));
+    const viewport = page.getViewport({ scale: Math.max(pixelW / unscaled.width, pixelH / unscaled.height) });
+    const offscreen = document.createElement('canvas');
+    offscreen.width = pixelW; offscreen.height = pixelH;
+    const ctx = offscreen.getContext('2d', { alpha: false });
+    await page.render({ canvasContext: ctx, viewport }).promise;
+    pageCache.set(num, { canvas: offscreen, cssW, cssH, pixelW, pixelH });
+  } catch (_) {
+  } finally {
+    preRenderInProgress.delete(num);
+  }
+}
+
+function preRenderNeighbors(n) {
+  setTimeout(() => preRenderPage(n - 1), 80);
+  setTimeout(() => preRenderPage(n + 1), 200);
+}
+
+function invalidatePageCache() {
+  pageCache.clear();
+  preRenderInProgress.clear();
+}
+
+async function rebuildAnnotationsForPage(num) {
+  const page = await pdfDoc.getPage(num);
+  const { unscaled, cssW, cssH } = getPageLayout(page);
+  const dpr = window.devicePixelRatio || 1;
+  const renderRatio = Math.min(dpr * 3, 8);
+  const maxPixels = 16_000_000;
+  const limitedRatio = Math.min(renderRatio, Math.sqrt(maxPixels / (cssW * cssH)));
+  const pixelW = Math.max(1, Math.round(cssW * limitedRatio));
+  const pixelH = Math.max(1, Math.round(cssH * limitedRatio));
+  const viewport = page.getViewport({ scale: Math.max(pixelW / unscaled.width, pixelH / unscaled.height) });
+  const canvasScaleX = pixelW / cssW;
+  const canvasScaleY = pixelH / cssH;
+  annoLayer.innerHTML = '';
+  annoLayer.style.width = cssW + 'px';
+  annoLayer.style.height = cssH + 'px';
+  const annotations = await page.getAnnotations();
+  for (const anno of annotations) {
+    if (anno.subtype !== 'Link' || !anno.url) continue;
+    const [x1, y1, x2, y2] = pdfjsLib.Util.normalizeRect(viewport.convertToViewportRectangle(anno.rect));
+    const a = document.createElement('a');
+    a.href = anno.url; a.target = '_blank'; a.rel = 'noopener noreferrer';
+    a.style.left   = (x1 / canvasScaleX) + 'px';
+    a.style.top    = (y1 / canvasScaleY) + 'px';
+    a.style.width  = ((x2 - x1) / canvasScaleX) + 'px';
+    a.style.height = ((y2 - y1) / canvasScaleY) + 'px';
+    annoLayer.appendChild(a);
+  }
+}
+
 function ensureCurlCanvas() {
   if (curlCanvas) return;
   curlCanvas = document.createElement('canvas');
@@ -511,8 +579,27 @@ async function animateCurl(n, direction, myGen) {
   curlCanvas.style.display = 'block';
   drawCurlFrame(curlCtx, snapCanvas, W, H, 0, direction);
 
-  // Render destination page into mobileCanvas (underneath the overlay)
-  await render(n);
+  // Apply destination page — instant from cache, or fallback to async render
+  const cached = pageCache.get(n);
+  if (cached) {
+    if (mobileCanvas.width !== cached.pixelW || mobileCanvas.height !== cached.pixelH) {
+      mobileCanvas.width  = cached.pixelW;
+      mobileCanvas.height = cached.pixelH;
+    }
+    if (mobileCanvas.style.width  !== cached.cssW + 'px') mobileCanvas.style.width  = cached.cssW + 'px';
+    if (mobileCanvas.style.height !== cached.cssH + 'px') mobileCanvas.style.height = cached.cssH + 'px';
+    if (mobilePage.style.width    !== cached.cssW + 'px') mobilePage.style.width    = cached.cssW + 'px';
+    if (mobilePage.style.height   !== cached.cssH + 'px') mobilePage.style.height   = cached.cssH + 'px';
+    mobileCanvas.getContext('2d', { alpha: false }).drawImage(cached.canvas, 0, 0);
+    curEl.textContent = n;
+    const url = new URL(window.location);
+    if (n === 1) url.searchParams.delete('page'); else url.searchParams.set('page', n);
+    window.history.replaceState({}, '', url);
+    // Rebuild annotation layer concurrently (invisible during curl, ready when it finishes)
+    rebuildAnnotationsForPage(n).catch(() => {});
+  } else {
+    await render(n);
+  }
   if (flipGen !== myGen) { curlCanvas.style.display = 'none'; return; }
 
   const DURATION = 650; // ms
@@ -547,7 +634,9 @@ function go(n) {
   currentPage = n;
   if (isMobileCanvasMode && mobileCanvas) {
     const myGen = ++flipGen; // cancels any in-progress animation
-    animateCurl(n, direction, myGen).catch(() => render(n));
+    animateCurl(n, direction, myGen)
+      .then(() => { if (isMobileCanvasMode) preRenderNeighbors(n); })
+      .catch(() => render(n));
   } else {
     render(n);
   }
@@ -630,6 +719,7 @@ function scheduleRender(delay = 150) {
     // visual viewport back to scale 1. The initial render at 3×DPR is enough
     // for sharp display up to ~3× zoom on high-DPR devices.
     if (isMobileCanvasMode && (window.visualViewport?.scale || 1) > 1.05) return;
+    invalidatePageCache();
     render(currentPage);
   }, delay);
 }
@@ -648,6 +738,7 @@ window.addEventListener('resize', () => scheduleRender());
     const rendered = await render(currentPage);
     if (!rendered) return;
     loader.classList.add('hide');
+    if (isMobileCanvasMode) preRenderNeighbors(currentPage);
     showChrome();
     // Show keyboard hint briefly on desktop when landing on page 1
     if (window.innerWidth > 768 && currentPage === 1) {
